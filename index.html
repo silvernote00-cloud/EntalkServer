@@ -1,0 +1,399 @@
+\<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <title>엔톡</title>
+
+    <style>
+
+        body {
+            font-family: Arial, sans-serif;
+            margin: 30px;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+        }
+
+        #roomArea {
+            width: 300px;
+            float: left;
+            margin-right: 30px;
+        }
+
+        #chatArea {
+            width: 500px;
+            float: left;
+        }
+
+        #roomList {
+            border: 1px solid #aaa;
+            padding: 10px;
+            min-height: 200px;
+            margin-top: 10px;
+        }
+
+        .roomButton {
+            width: 100%;
+            margin-bottom: 5px;
+            padding: 10px;
+            cursor: pointer;
+        }
+
+        #chat {
+            border: 1px solid #aaa;
+            height: 300px;
+            overflow-y: auto;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+
+        #message {
+            width: 380px;
+            padding: 10px;
+        }
+
+        button {
+            padding: 8px 12px;
+            cursor: pointer;
+        }
+
+        #currentRoom {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+    </style>
+
+</head>
+
+
+<body>
+
+<h1>엔톡</h1>
+
+
+<!-- ===================== -->
+<!-- 방 영역 -->
+<!-- ===================== -->
+
+<div id="roomArea">
+
+    <h2>채팅방</h2>
+
+    <input
+        id="roomName"
+        placeholder="방 이름"
+    >
+
+    <button onclick="createRoom()">
+        방 만들기
+    </button>
+
+    <div id="roomList">
+        방 목록이 없어
+    </div>
+
+</div>
+
+
+<!-- ===================== -->
+<!-- 채팅 영역 -->
+<!-- ===================== -->
+
+<div id="chatArea">
+
+    <h2>채팅</h2>
+
+    <div id="currentRoom">
+        현재 방: 없음
+    </div>
+
+    <div id="chat"></div>
+
+    <input
+        id="message"
+        placeholder="메시지 입력"
+        onkeydown="if(event.key === 'Enter') sendMessage()"
+    >
+
+    <button onclick="sendMessage()">
+        보내기
+    </button>
+
+    <button onclick="leaveRoom()">
+        방 나가기
+    </button>
+
+</div>
+
+
+<script>
+
+
+// =========================
+// 서버 연결
+// =========================
+
+const socket = new WebSocket(
+    "ws://192.168.45.12:8080"
+);
+
+
+// 현재 들어가 있는 방
+let currentRoom = "";
+
+
+// =========================
+// 서버 연결 성공
+// =========================
+
+socket.onopen = function() {
+
+    document.getElementById("chat").innerHTML +=
+        "<p>서버 연결됨!</p>";
+
+};
+
+
+// =========================
+// 서버에서 메시지 받기
+// =========================
+
+socket.onmessage = function(event) {
+
+    const data = JSON.parse(event.data);
+
+
+    // -------------------------
+    // 방에 들어감
+    // -------------------------
+
+    if (data.type === "joined") {
+
+        currentRoom = data.room;
+
+        document.getElementById("currentRoom").innerText =
+            "현재 방: " + currentRoom;
+
+        document.getElementById("chat").innerHTML +=
+            "<p>[" + currentRoom + "] 방에 들어왔어!</p>";
+
+    }
+
+
+    // -------------------------
+    // 채팅 메시지
+    // -------------------------
+
+    else if (data.type === "message") {
+
+        document.getElementById("chat").innerHTML +=
+            "<p>" + data.text + "</p>";
+
+    }
+
+
+    // -------------------------
+    // 방 목록
+    // -------------------------
+
+    else if (data.type === "rooms") {
+
+        const roomList =
+            document.getElementById("roomList");
+
+        roomList.innerHTML = "";
+
+
+        if (data.rooms.length === 0) {
+
+            roomList.innerHTML =
+                "방이 없어";
+
+            return;
+
+        }
+
+
+        data.rooms.forEach(function(room) {
+
+            const button =
+                document.createElement("button");
+
+            button.className = "roomButton";
+
+            button.innerText = room;
+
+            button.onclick = function() {
+
+                joinRoom(room);
+
+            };
+
+            roomList.appendChild(button);
+
+        });
+
+    }
+
+
+    // -------------------------
+    // 방 나감
+    // -------------------------
+
+    else if (data.type === "left") {
+
+        currentRoom = "";
+
+        document.getElementById("currentRoom").innerText =
+            "현재 방: 없음";
+
+        document.getElementById("chat").innerHTML +=
+            "<p>방에서 나갔어.</p>";
+
+    }
+
+
+    // -------------------------
+    // 오류
+    // -------------------------
+
+    else if (data.type === "error") {
+
+        document.getElementById("chat").innerHTML +=
+            "<p>오류: " + data.text + "</p>";
+
+    }
+
+};
+
+
+// =========================
+// 방 만들기
+// =========================
+
+function createRoom() {
+
+    const input =
+        document.getElementById("roomName");
+
+    const room =
+        input.value.trim();
+
+
+    if (room === "") {
+
+        return;
+
+    }
+
+
+    socket.send(JSON.stringify({
+
+        type: "create",
+
+        room: room
+
+    }));
+
+
+    input.value = "";
+
+}
+
+
+// =========================
+// 방 입장
+// =========================
+
+function joinRoom(room) {
+
+    socket.send(JSON.stringify({
+
+        type: "join",
+
+        room: room
+
+    }));
+
+}
+
+
+// =========================
+// 메시지 보내기
+// =========================
+
+function sendMessage() {
+
+    const input =
+        document.getElementById("message");
+
+
+    const text =
+        input.value.trim();
+
+
+    if (text === "") {
+
+        return;
+
+    }
+
+
+    if (currentRoom === "") {
+
+        alert("먼저 채팅방에 들어가!");
+
+        return;
+
+    }
+
+
+    socket.send(JSON.stringify({
+
+        type: "message",
+
+        room: currentRoom,
+
+        text: text
+
+    }));
+
+
+    input.value = "";
+
+}
+
+
+// =========================
+// 방 나가기
+// =========================
+
+function leaveRoom() {
+
+    if (currentRoom === "") {
+
+        return;
+
+    }
+
+
+    socket.send(JSON.stringify({
+
+        type: "leave"
+
+    }));
+
+}
+
+
+</script>
+
+
+</body>
+
+</html>
