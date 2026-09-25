@@ -1,4 +1,3 @@
-```python
 import asyncio
 import json
 import os
@@ -19,9 +18,6 @@ async def broadcast_room_list():
 
     for room_clients in rooms.values():
         clients.update(room_clients)
-
-    if not clients:
-        return
 
     message = json.dumps({
         "type": "room_list",
@@ -88,7 +84,7 @@ async def chat(websocket):
                 if current_room and current_room in rooms:
                     rooms[current_room].discard(websocket)
 
-                    if len(rooms[current_room]) == 0:
+                    if not rooms[current_room]:
                         del rooms[current_room]
 
                 rooms[room].add(websocket)
@@ -129,7 +125,7 @@ async def chat(websocket):
         if current_room and current_room in rooms:
             rooms[current_room].discard(websocket)
 
-            if len(rooms[current_room]) == 0:
+            if not rooms[current_room]:
                 del rooms[current_room]
 
         await broadcast_room_list()
@@ -148,4 +144,3 @@ async def main():
 
 
 asyncio.run(main())
-```
