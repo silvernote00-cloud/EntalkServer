@@ -1,170 +1,151 @@
+```python
 import asyncio
-import websockets
 import json
+import os
+import websockets
 
-clients = set()
 rooms = {}
 
 
-async def send_room_list():
-    data = json.dumps({
-        "type": "rooms",
+async def send_room_list(websocket):
+    await websocket.send(json.dumps({
+        "type": "room_list",
+        "rooms": list(rooms.keys())
+    }))
+
+
+async def broadcast_room_list():
+    clients = set()
+
+    for room_clients in rooms.values():
+        clients.update(room_clients)
+
+    if not clients:
+        return
+
+    message = json.dumps({
+        "type": "room_list",
         "rooms": list(rooms.keys())
     })
 
     for client in clients.copy():
         try:
-            await client.send(data)
+            await client.send(message)
         except:
             pass
 
 
 async def chat(websocket):
-
-    clients.add(websocket)
-
     current_room = None
 
     try:
+        await send_room_list(websocket)
 
         async for message in websocket:
+            try:
+                data = json.loads(message)
+            except:
+                continue
 
-            data = json.loads(message)
+            msg_type = data.get("type")
 
-            # =========================
             # 방 만들기
-            # =========================
+            if msg_type == "create":
+                room = data.get("room", "").strip()
 
-            if data["type"] == "create":
-
-                room = data["room"].strip()
-
-                if room == "":
+                if not room:
                     continue
 
-                if room not in rooms:
-                    rooms[room] = set()
+                if room in rooms:
+                    await websocket.send(json.dumps({
+                        "type": "error",
+                        "message": "이미 존재하는 방입니다."
+                    }))
+                    continue
 
-                # 기존 방에서 나가기
-                if current_room is not None:
-                    rooms[current_room].discard(websocket)
-
-                    if len(rooms[current_room]) == 0:
-                        del rooms[current_room]
-
-                current_room = room
+                rooms[room] = set()
                 rooms[room].add(websocket)
+                current_room = room
 
                 await websocket.send(json.dumps({
                     "type": "joined",
                     "room": room
                 }))
 
-                await send_room_list()
+                await broadcast_room_list()
 
-
-            # =========================
             # 방 입장
-            # =========================
-
-            elif data["type"] == "join":
-
-                room = data["room"]
+            elif msg_type == "join":
+                room = data.get("room", "").strip()
 
                 if room not in rooms:
                     await websocket.send(json.dumps({
                         "type": "error",
-                        "text": "존재하지 않는 방이야!"
+                        "message": "없는 방입니다."
                     }))
                     continue
 
-                # 기존 방에서 나가기
-                if current_room is not None:
+                if current_room and current_room in rooms:
                     rooms[current_room].discard(websocket)
 
                     if len(rooms[current_room]) == 0:
                         del rooms[current_room]
 
-                current_room = room
                 rooms[room].add(websocket)
+                current_room = room
 
                 await websocket.send(json.dumps({
                     "type": "joined",
                     "room": room
                 }))
 
+                await broadcast_room_list()
 
-            # =========================
             # 메시지 보내기
-            # =========================
+            elif msg_type == "message":
+                text = data.get("text", "").strip()
 
-            elif data["type"] == "message":
-
-                room = data["room"]
-                text = data["text"]
-
-                if room not in rooms:
+                if not current_room or current_room not in rooms:
                     continue
 
-                for client in rooms[room].copy():
+                if not text:
+                    continue
 
+                message_data = json.dumps({
+                    "type": "message",
+                    "text": text
+                })
+
+                for client in rooms[current_room].copy():
                     try:
-                        await client.send(json.dumps({
-                            "type": "message",
-                            "text": text
-                        }))
+                        await client.send(message_data)
                     except:
-                        pass
+                        rooms[current_room].discard(client)
 
-
-            # =========================
-            # 방 나가기
-            # =========================
-
-            elif data["type"] == "leave":
-
-                if current_room is not None:
-
-                    rooms[current_room].discard(websocket)
-
-                    if len(rooms[current_room]) == 0:
-                        del rooms[current_room]
-
-                    current_room = None
-
-                    await websocket.send(json.dumps({
-                        "type": "left"
-                    }))
-
-                    await send_room_list()
-
+    except websockets.exceptions.ConnectionClosed:
+        pass
 
     finally:
-
-        clients.discard(websocket)
-
-        if current_room is not None:
-
+        if current_room and current_room in rooms:
             rooms[current_room].discard(websocket)
 
             if len(rooms[current_room]) == 0:
                 del rooms[current_room]
 
-            await send_room_list()
+        await broadcast_room_list()
 
 
 async def main():
+    port = int(os.environ.get("PORT", 8080))
 
     async with websockets.serve(
         chat,
         "0.0.0.0",
-        8080
+        port
     ):
-
-        print("엔톡 서버 실행 중!")
-        print("포트: 8080")
-
+        print(f"엔톡 서버 실행 중! 포트: {port}")
         await asyncio.Future()
 
 
 asyncio.run(main())
+```
